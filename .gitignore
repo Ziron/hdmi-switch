@@ -1,2 +1,5 @@
 /.vscode
 /pico-go.json
+
+# Donwload from https://github.com/peterhinch/micropython_ir
+/ir_rx 

@@ -1,5 +1,7 @@
 import machine
 import time
+import _thread
+from ir_rx.nec import NEC_8  # NEC remote, 8 bit addresses
 
 STATUS_REG = 0x11
 STATUS_IN1_BIT = (1 << 0)
@@ -27,18 +29,41 @@ i2c = machine.I2C(0, sda=sda, scl=scl, freq=100000)
 switch1 = 0x5A
 switch2 = 0x4A
 
+switch_input_to = 0
 switch_input = False
 
 connection_status = [False, False, False, False, False, False]
 
 btn_last = time.ticks_ms()
 
-def button_handler(pin):
-    global btn_last, switch_input
+def ir_handler(data, addr, ctrl):
+    global switch_input_to, switch_input
+    if data < 0:  # NEC protocol sends repeat codes.
+        pass #print('Repeat code.')
+    else:
+        if addr == 0x0080:
+            if data == 0x02:
+                switch_input_to = 1
+                switch_input = True
+            elif data == 0x04:
+                switch_input_to = 2
+                switch_input = True
+            elif data == 0x05:
+                switch_input_to = 3
+                switch_input = True
+            elif data == 0x06:
+                switch_input_to = 4
+                switch_input = True
+            elif data == 0x08:
+                switch_input_to = 5
+                switch_input = True
 
-    if time.ticks_diff(time.ticks_ms(), btn_last) > 200: # debounce
+def button_handler(pin):
+    global btn_last, switch_input, switch_input_to
+
+    if time.ticks_diff(time.ticks_ms(), btn_last) > 100: # debounce
         btn_last = time.ticks_ms()
-        
+        switch_input_to = 0
         switch_input = True
 
 
@@ -122,7 +147,7 @@ def switch_to_input(input_nr):
         sw1 |= EN_IN3_BIT
         sw2 |= EN_IN3_BIT
         led5.high()
-
+    
     write(bytearray([0x10, sw1]), switch1)
     write(bytearray([0x10, sw2]), switch2)
 
@@ -132,6 +157,8 @@ def switch_to_input(input_nr):
 
 def main():
     global connection_status, switch_input
+
+    ir_nec = NEC_8(ir, ir_handler)
 
     btn.irq(button_handler, machine.Pin.IRQ_FALLING)
 
@@ -153,13 +180,13 @@ def main():
         if switch_input:
             switch_input = False
             
-            while True:
-                new_input = new_input % 5 + 1
-                if connection_status[new_input]:
-                    break
-                elif new_input == cur_input:
+            if switch_input_to:
+                new_input = switch_input_to
+            else:
+                for _ in range(6): # Loops around and if no connected input is found will just switch to next input
                     new_input = new_input % 5 + 1
-                    break
+                    if connection_status[new_input]:
+                        break
 
         if cur_input != new_input:
             try:
